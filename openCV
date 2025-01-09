@@ -1,1 +1,33 @@
+import cv2
+import numpy as np
+
+# 讀取影像
+img = cv2.imread('test.png')
+img2 = cv2.imread('test2.png')
+
+# 檢查影像是否讀取成功
+if img is None or img2 is None:
+    print("Error: Could not read one or both images.")
+    exit(1)
+
+# 檢查影像尺寸是否相同
+if img.shape != img2.shape:
+    print("Error: Images must have the same size.")
+    exit(1)
+
+# 逐像素相減
+difference = cv2.subtract(img, img2)
+
+result_image = np.zeros((200, 400, 3), dtype=np.uint8)  # 純黑圖像
+
+if not np.any(difference):  # 若全為零則代表影像相同
+    print("Passed")
+    cv2.putText(result_image, "Passed", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)  # 綠色文字
+else:
+    print("Failed")
+    cv2.putText(result_image, "Failed", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)  # 紅色文字
+
+cv2.imshow('Result', result_image)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
 
