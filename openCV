@@ -15,6 +15,18 @@ if img.shape != img2.shape:
     print("Error: Images must have the same size.")
     exit(1)
 
+# 定義要忽略的區域
+ignore_regions = [
+    ((966, 1), (1080, 32)),       # 區域1
+    ((680, 1000), (1030, 1140)),  # 區域2
+    ((0, 3658), (96, 3840))       # 區域3
+]
+
+# 在要忽略的區域中，將 img 和 img2 的像素設為相同
+for start, end in ignore_regions:
+    img[start[1]:end[1], start[0]:end[0]] = 0
+    img2[start[1]:end[1], start[0]:end[0]] = 0
+
 # 逐像素相減
 difference = cv2.subtract(img, img2)
 
