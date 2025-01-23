@@ -17,29 +17,123 @@ if img.shape != img2.shape:
 
 # 定義要忽略的區域
 ignore_regions = [
-    ((966, 1), (1080, 32)),       # 區域1
-    ((680, 1000), (1030, 1140)),  # 區域2
-    ((0, 3658), (96, 3840))       # 區域3
+    {"start": (966, 1), "end": (1080, 32), "position": "down"},  # 區域 1
+    {"start": (680, 1000), "end": (1030, 1140), "position": "top"},  # 區域 2
+    {"start": (10, 3550), "end": (115, 3840), "position": "right"},  # 區域 3
+#    {"start": (225, 275), "end": (900, 680), "position": "top"},  # 區域 4 (車子區域)
+    {"start": (240, 988), "end": (633, 1361), "position": "top"},  # 區域 5
+    {"start": (657, 1174), "end": (1034, 1343), "position": "top"},  # 區域 6
+    {"start": (4, 2048), "end": (97, 2218), "position": "right"},  # 區域 7
+    {"start": (370, 2320), "end": (575, 2425), "position": "right"},  # 區域 8
+    {"start": (400, 3585), "end": (680, 3692), "position": "right"},  # 區域 9
+    {"start": (1, 1), "end": (241, 41), "position": "right"},  # 區域 10
+    {"start": (12, 3195), "end": (115, 3440), "position": "right"},  # 區域 11
 ]
 
-# 在要忽略的區域中，將 img 和 img2 的像素設為相同
-for start, end in ignore_regions:
-    img[start[1]:end[1], start[0]:end[0]] = 0
-    img2[start[1]:end[1], start[0]:end[0]] = 0
+# 在忽略區域內，使 img 和 img2 的像素設為相同
+for region in ignore_regions:
+    start, end = region["start"], region["end"]
+    img[start[1]:end[1], start[0]:end[0]] = img2[start[1]:end[1], start[0]:end[0]]
 
-# 逐像素相減
-difference = cv2.subtract(img, img2)
+difference = cv2.absdiff(img, img2)
 
-result_image = np.zeros((200, 400, 3), dtype=np.uint8)  # 純黑圖像
+# 將差異轉為灰階
+gray_diff = cv2.cvtColor(difference, cv2.COLOR_BGR2GRAY)
 
-if not np.any(difference):  # 若全為零則代表影像相同
-    print("Passed")
-    cv2.putText(result_image, "Passed", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)  # 綠色文字
-else:
-    print("Failed")
-    cv2.putText(result_image, "Failed", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)  # 紅色文字
+# 閥值化處理，將差異區域突出
+_, thresh_diff = cv2.threshold(gray_diff, 50, 255, cv2.THRESH_BINARY)
 
-cv2.imshow('Result', result_image)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+# 找出差異區域的輪廓
+contours, _ = cv2.findContours(thresh_diff, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+# 初始化一個清單來儲存差異區域的框座標
+bounding_boxes = []
+
+# 找出所有非忽略的差異區域
+for contour in contours:
+    x, y, w, h = cv2.boundingRect(contour)
+
+    # 檢查是否與忽略區域重疊
+    is_in_ignore = False
+    for region in ignore_regions:
+        start, end = region["start"], region["end"]
+        if (x >= start[0] and y >= start[1]) and (x + w <= end[0] and y + h <= end[1]):
+            is_in_ignore = True
+            break
+
+    # 如果不在忽略區域，記錄該框的座標
+    if not is_in_ignore:
+        bounding_boxes.append((x, y, x + w, y + h))
+
+# 合併相鄰或重疊的框
+def merge_boxes(boxes):
+    if not boxes:
+        return []
+
+    # 按左上角 x 座標排序
+    boxes = sorted(boxes, key=lambda b: (b[0], b[1]))
+    merged = []
+
+    current_box = boxes[0]
+
+    for box in boxes[1:]:
+        if box[0] <= current_box[2] and box[1] <= current_box[3]:  # 檢查是否重疊
+            current_box = (
+                min(current_box[0], box[0]),
+                min(current_box[1], box[1]),
+                max(current_box[2], box[2]),
+                max(current_box[3], box[3]),
+            )
+        else:
+            merged.append(current_box)
+            current_box = box
+
+    # 加入最後的框
+    merged.append(current_box)
+    return merged
+
+# 合併差異區域框
+merged_boxes = merge_boxes(bounding_boxes)
+
+# 如果有差異區域，將所有紅框合併為一個
+if merged_boxes:
+    # 計算所有框的最小邊界來繪製單一的紅框
+    x1_min = min([box[0] for box in merged_boxes])
+    y1_min = min([box[1] for box in merged_boxes])
+    x2_max = max([box[2] for box in merged_boxes])
+    y2_max = max([box[3] for box in merged_boxes])
+    
+    cv2.rectangle(img2, (x1_min, y1_min), (x2_max, y2_max), (0, 0, 255), 3)
+    cv2.putText(img2, "Failed", (x1_min, y1_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+
+# 繪製忽略區域框並標示 Ignore
+for region in ignore_regions:
+    start, end, position = region["start"], region["end"], region["position"]
+    
+    # 繪製灰色框
+    cv2.rectangle(img2, start, end, (128, 128, 128), 2)
+    
+    # 計算文字位置
+    if position == "down":  # 下方
+        text_x = start[0]
+        text_y = end[1] + 30 
+    elif position == "right":  # 右方
+        text_x = end[0] + 10
+        text_y = start[1] + (end[1] - start[1]) // 2  # 在區域的中間顯示
+    else:  # 預設上方
+        text_x = start[0]
+        text_y = start[1] - 10 if start[1] > 10 else start[1] + 20
+
+    cv2.putText(img2, "Ignore", (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+# 顯示 Passed 或 Failed 的結果
+is_passed = len(merged_boxes) == 0
+result_text = "Passed" if is_passed else "Failed"
+result_color = (0, 255, 0) if is_passed else (0, 0, 255)
+result_position = (472, 150)
+
+# 顯示結果文字
+cv2.putText(img2, result_text, result_position, cv2.FONT_HERSHEY_SIMPLEX, 1.2, result_color, 3)
+
+# 保存標記差異的圖像
+cv2.imwrite("diff_result.png", img2)
